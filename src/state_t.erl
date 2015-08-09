@@ -14,39 +14,53 @@
 %% Copyright (c) 2011-2013 VMware, Inc.  All rights reserved.
 %%
 
--module(state_t, [InnerMonad]).
+-module(state_t).
 -compile({parse_transform, do}).
 
 -behaviour(monad).
--export(['>>='/2, return/1, fail/1]).
--export([get/0, put/1, eval/2, exec/2, run/2,
-         modify/1, modify_and_return/1, lift/1]).
+-export([new/1, '>>='/3, return/2, fail/2]).
+-export([get/1, put/2, eval/3, exec/3, run/3,
+         modify/2, modify_and_return/2, lift/2]).
+
+-record(state_t, {inner_m}).
 
 -ifdef(use_specs).
 -type(monad(A) :: fun ((S) -> {A, S})).
 -include("monad_specs.hrl").
 -endif.
 
-'>>='(X, Fun) -> fun (S) -> do([InnerMonad || {A, S1} <- X(S),
-                                              (Fun(A))(S1)]) end.
+new(InnerMonad) ->
+    #state_t{inner_m=InnerMonad}.
 
-return(A)     -> fun (S) -> InnerMonad:return({A, S}) end.
-fail(Str)     -> fun (_) -> InnerMonad:fail(Str) end.
+'>>='(X, Fun, #state_t{inner_m=InnerMonad}) ->
+   fun (S) -> do([InnerMonad || {A, S1} <- X(S), (Fun(A))(S1)]) end.
 
-get()         -> fun (S) -> InnerMonad:return({S, S}) end.
+return(A, #state_t{inner_m=InnerMonad}) ->
+    fun (S) -> InnerMonad:return({A, S}) end.
 
-put(S)        -> fun (_) -> InnerMonad:return({ok, S}) end.
+fail(Str, #state_t{inner_m=InnerMonad}) ->
+    fun (_) -> InnerMonad:fail(Str) end.
 
-eval(Monad, S) -> do([InnerMonad || {A, _S1} <- Monad(S),
-                                    return(A)]).
+get(#state_t{inner_m=InnerMonad}) ->
+    fun (S) -> InnerMonad:return({S, S}) end.
 
-exec(Monad, S) -> do([InnerMonad || {_A, S1} <- Monad(S),
-                                    return(S1)]).
+put(S, #state_t{inner_m=InnerMonad}) ->
+    fun (_) -> InnerMonad:return({ok, S}) end.
 
-run(Monad, S)  -> do([InnerMonad || Monad(S)]).
+eval(Monad, S, #state_t{inner_m=InnerMonad}) ->
+    do([InnerMonad || {A, _S1} <- Monad(S), return(A)]).
 
-modify(Fun) -> fun (S) -> InnerMonad:return({ok, Fun(S)}) end.
+exec(Monad, S, #state_t{inner_m=InnerMonad}) ->
+    do([InnerMonad || {_A, S1} <- Monad(S), return(S1)]).
 
-modify_and_return(Fun) -> fun (S) -> InnerMonad:return(Fun(S)) end.
+run(Monad, S, #state_t{}) ->
+    do([InnerMonad || Monad(S)]).
 
-lift(X) -> fun (S) -> do([InnerMonad || A <- X, return({A, S})]) end.
+modify(Fun, #state_t{inner_m=InnerMonad}) ->
+    fun (S) -> InnerMonad:return({ok, Fun(S)}) end.
+
+modify_and_return(Fun, #state_t{inner_m=InnerMonad}) ->
+    fun (S) -> InnerMonad:return(Fun(S)) end.
+
+lift(X, #state_t{inner_m=InnerMonad}) ->
+    fun (S) -> do([InnerMonad || A <- X, return({A, S})]) end.
